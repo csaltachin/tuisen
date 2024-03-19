@@ -23,8 +23,8 @@ use actions::{TerminalAction, TwitchAction};
 
 mod config;
 
+const DEFAULT_IRC_ADDR: &str = "irc.chat.twitch.tv:6667";
 const DEFAULT_CHANNEL: &str = "forsen";
-const DEFAULT_BOT_PREFIX: &str = "bk ";
 
 // TODO: Break off ui stuff into its own module
 
@@ -90,10 +90,10 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                 ))
                 .unwrap();
             TwitchClientConfig::new(
-                "irc.chat.twitch.tv:6667".to_owned(),
+                DEFAULT_IRC_ADDR.to_owned(),
                 app_config.login,
-                "markzynk".to_owned(),
-                "bk ".to_owned(),
+                app_config.channel.unwrap_or(DEFAULT_CHANNEL.to_owned()),
+                app_config.bot_mode,
             )
         }
         Err(e) => {
@@ -104,10 +104,10 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                 )))
                 .unwrap();
             TwitchClientConfig::new(
-                "irc.chat.twitch.tv:6667".to_owned(),
+                DEFAULT_IRC_ADDR.to_owned(),
                 TwitchLogin::Anonymous,
                 DEFAULT_CHANNEL.to_owned(),
-                DEFAULT_BOT_PREFIX.to_owned(),
+                config::BotMode::Off,
             )
         }
     };

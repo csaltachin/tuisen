@@ -1,2 +1,7 @@
+# Login info (see README for details)
 username = "forsen"
 token = "mysupersecrettoken"
+
+# The channel to join on startup
+channel = "xqc"
+

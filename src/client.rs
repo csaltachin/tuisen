@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::actions::{TerminalAction, TwitchAction};
-use crate::config::TwitchLogin;
+use crate::config::{BotMode, TwitchLogin};
 
 // TODO: Break off irc stuff into its own module
 // Also try to clone strings less often
@@ -15,22 +15,17 @@ use crate::config::TwitchLogin;
 pub struct TwitchClientConfig {
     irc_addr: String,
     login: TwitchLogin,
-    default_channel: String,
-    bot_command_prefix: String,
+    channel: String,
+    bot_mode: BotMode,
 }
 
 impl TwitchClientConfig {
-    pub fn new(
-        irc_addr: String,
-        login: TwitchLogin,
-        default_channel: String,
-        bot_command_prefix: String,
-    ) -> Self {
+    pub fn new(irc_addr: String, login: TwitchLogin, channel: String, bot_mode: BotMode) -> Self {
         TwitchClientConfig {
             irc_addr,
             login,
-            default_channel,
-            bot_command_prefix,
+            channel,
+            bot_mode,
         }
     }
 }
@@ -150,7 +145,7 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
     type Error = TwitchIrcParseError;
 
     fn try_from(value: RawIrcMessage) -> Result<Self, Self::Error> {
-        // TODO: parse tags into hashmap
+        // TODO: parse tags into hashmap from raw_tags
         let tags: Option<HashMap<String, String>> = None;
 
         let sender: Option<String> = value
@@ -249,7 +244,7 @@ fn handle_message(
     writer: &mut BufWriter<TcpStream>,
     terminal_action_tx: &Sender<TerminalAction>,
     message: TwitchIrcMessage,
-    bot_command_prefix: &String,
+    bot_mode: &BotMode,
     default_raw: &String,
 ) -> io::Result<()> {
     match message.command {
@@ -277,20 +272,26 @@ fn handle_message(
                 .unwrap();
 
             // Check for bot commands
-            // TODO: Remove this when it becomes an actual client
-            if let Some(raw_bot_command) = content.strip_prefix(bot_command_prefix) {
-                // Echo some text
-                if let Some(echo_arg) = raw_bot_command.strip_prefix("echo ") {
-                    writer.write(
-                        format!("PRIVMSG #{} :SingsMic {}\r\n", channel, echo_arg).as_bytes(),
-                    )?;
-                    writer.flush()?;
-                } else if raw_bot_command.starts_with("ping") {
-                    writer.write(format!("PRIVMSG #{} :pong FutureMan\r\n", channel).as_bytes())?;
-                    writer.flush()?;
-                } else if raw_bot_command == "raid" {
-                    writer.write(format!("PRIVMSG #{} :+join\r\n", channel).as_bytes())?;
-                    writer.flush()?;
+            // TODO: Document this, or remove it, or make it configurable somehow
+            if let BotMode::WithPrefix(bot_command_prefix) = bot_mode {
+                if let Some(raw_bot_command) = content.strip_prefix(bot_command_prefix) {
+                    if let Some(echo_arg) = raw_bot_command.strip_prefix("echo ") {
+                        // Echo some text
+                        writer.write(
+                            format!("PRIVMSG #{} :SingsMic {}\r\n", channel, echo_arg).as_bytes(),
+                        )?;
+                        writer.flush()?;
+                    } else if raw_bot_command.starts_with("ping") {
+                        // Answer a ping
+                        writer.write(
+                            format!("PRIVMSG #{} :pong FutureMan\r\n", channel).as_bytes(),
+                        )?;
+                        writer.flush()?;
+                    } else if raw_bot_command == "raid" {
+                        // Type +join, for DeepDarkDungeonBot raids
+                        writer.write(format!("PRIVMSG #{} :+join\r\n", channel).as_bytes())?;
+                        writer.flush()?;
+                    }
                 }
             }
         }
@@ -359,11 +360,11 @@ pub fn connect_and_listen(
     terminal_action_tx
         .send(TerminalAction::PrintDebug(format!(
             "[client] Connecting to channel #{}... (did auth succeed?)",
-            client_config.default_channel
+            client_config.channel
         )))
         .unwrap();
 
-    writer.write(format!("JOIN #{}\r\n", client_config.default_channel).as_bytes())?;
+    writer.write(format!("JOIN #{}\r\n", client_config.channel).as_bytes())?;
     writer.flush()?;
 
     terminal_action_tx
@@ -384,7 +385,7 @@ pub fn connect_and_listen(
                                     &mut writer,
                                     &terminal_action_tx,
                                     twitch_irc_message,
-                                    &client_config.bot_command_prefix,
+                                    &client_config.bot_mode,
                                     &raw,
                                 )?;
                             }
@@ -421,17 +422,14 @@ pub fn connect_and_listen(
                     if let TwitchLogin::Auth { ref username, .. } = client_config.login {
                         writer
                             .write(
-                                format!(
-                                    "PRIVMSG #{} :{}\r\n",
-                                    client_config.default_channel, message
-                                )
-                                .as_bytes(),
+                                format!("PRIVMSG #{} :{}\r\n", client_config.channel, message)
+                                    .as_bytes(),
                             )
                             .unwrap();
                         writer.flush().unwrap();
                         terminal_action_tx
                             .send(TerminalAction::PrintPrivmsg {
-                                channel: client_config.default_channel.clone(),
+                                channel: client_config.channel.clone(),
                                 username: username.clone(),
                                 message,
                             })
