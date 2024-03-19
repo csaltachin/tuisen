@@ -23,6 +23,11 @@ use actions::{TerminalAction, TwitchAction};
 
 mod config;
 
+const DEFAULT_CHANNEL: &str = "forsen";
+const DEFAULT_BOT_PREFIX: &str = "bk ";
+
+// TODO: Break off ui stuff into its own module
+
 enum ScrollState {
     Bottom,
     Offset(usize),
@@ -101,8 +106,8 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
             TwitchClientConfig::new(
                 "irc.chat.twitch.tv:6667".to_owned(),
                 TwitchLogin::Anonymous,
-                "markzynk".to_owned(),
-                "bk ".to_owned(),
+                DEFAULT_CHANNEL.to_owned(),
+                DEFAULT_BOT_PREFIX.to_owned(),
             )
         }
     };
