@@ -2,7 +2,6 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::{io, thread};
 
-use config::TwitchLogin;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
 };
@@ -22,6 +21,7 @@ mod actions;
 use actions::{TerminalAction, TwitchAction};
 
 mod config;
+use config::TwitchLogin;
 
 const DEFAULT_IRC_ADDR: &str = "irc.chat.twitch.tv:6667";
 const DEFAULT_CHANNEL: &str = "forsen";
