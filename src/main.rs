@@ -23,6 +23,8 @@ use actions::{TerminalAction, TwitchAction};
 mod config;
 use config::TwitchLogin;
 
+mod irc;
+
 const DEFAULT_IRC_ADDR: &str = "irc.chat.twitch.tv:6667";
 const DEFAULT_CHANNEL: &str = "forsen";
 
