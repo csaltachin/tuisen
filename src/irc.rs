@@ -123,9 +123,10 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
             .transpose()?
             .filter(|b| !b.is_empty())
             .map(|prefix| {
-                // If prefix is not empty, then it should be of the form "nick!name@host.", and it
-                // should satisfy nick == name == host. Then the sender will be name
-                // TODO: double check if this is correct... it fails to parse some JOIN commands
+                // If prefix is not empty, then it should be of one of two forms:
+                // - "nick."
+                // - "nick!nick@nick."
+                // TODO: Parse the second form correctly.
                 let (nick, remainder) = prefix
                     .split_once("!")
                     .ok_or(TwitchIrcParseError::BadSenderInOrigin)?;
@@ -144,7 +145,7 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
             .transpose()?;
 
         // Here we validate params if needed for each command
-        // TODO: Add more commands here (e.g. numeric commands)
+        // TODO: add JOIN, because we receive one when we join a channel
         match value.raw_command.as_str() {
             "PRIVMSG" => {
                 let sender = sender.ok_or(TwitchIrcParseError::MissingSender)?;
