@@ -123,23 +123,42 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
             .transpose()?
             .filter(|b| !b.is_empty())
             .map(|prefix| {
-                // If prefix is not empty, then it should be of one of two forms:
-                // - "nick."
-                // - "nick!nick@nick."
-                // TODO: Parse the second form correctly.
-                let (nick, remainder) = prefix
+                // If prefix is not empty, then it should have the following consecutive components:
+                // - "nick!" (optional)
+                // - "username@" (optional)
+                // - "hostname_prefix." (always)
+                // If more than one of these are present, then the present components
+                // (nick, username, hostname_prefix) should match. For instance, when receiving a
+                // PRIVMSG from Twitch, they should all match the author's username.
+                let remainder = &prefix;
+                let (nick_opt, remainder) = remainder
                     .split_once("!")
-                    .ok_or(TwitchIrcParseError::BadSenderInOrigin)?;
-                let (username, remainder) = remainder
+                    .map(|t| (Some(t.0), t.1))
+                    .unwrap_or((None, remainder));
+                let (username_opt, remainder) = remainder
                     .split_once("@")
-                    .ok_or(TwitchIrcParseError::BadSenderInOrigin)?;
-                let (hostname_prefix, remainder) = remainder
+                    .map(|t| (Some(t.0), t.1))
+                    .unwrap_or((None, remainder));
+                let (hostname_prefix_opt, remainder) = remainder
                     .split_once(".")
-                    .ok_or(TwitchIrcParseError::BadSenderInOrigin)?;
-                if remainder.is_empty() && nick == username && username == hostname_prefix {
-                    Ok(username.to_owned())
-                } else {
-                    Err(TwitchIrcParseError::MismatchedSenderInOrigin)
+                    .map(|t| (Some(t.0), t.1))
+                    .unwrap_or((None, remainder));
+
+                // Note that prefix ends with '.' iff hostname_prefix_opt holds Some(_) and
+                // remainder is empty.
+                match (nick_opt, username_opt, hostname_prefix_opt, remainder) {
+                    (None, None, Some(hostname_prefix), "") => Ok(hostname_prefix.to_owned()),
+                    (Some(nick), Some(username), Some(hostname_prefix), "")
+                        if nick == username && nick == hostname_prefix =>
+                    {
+                        Ok(username.to_owned())
+                    }
+                    (Some(_), Some(_), Some(_), "") => {
+                        Err(TwitchIrcParseError::MismatchedSenderInOrigin)
+                    }
+                    // TODO: Do we want to contemplate when exactly two of the three fields are
+                    // present? As far as I can tell, no such case appears in the Twitch docs.
+                    _ => Err(TwitchIrcParseError::BadSenderInOrigin),
                 }
             })
             .transpose()?;
