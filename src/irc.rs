@@ -25,6 +25,10 @@ pub enum TwitchIrcCommand {
     Pong {
         content: String,
     },
+    Numeric {
+        command: u16,
+        params: Vec<String>,
+    },
 }
 
 pub struct RawIrcMessage {
@@ -181,7 +185,20 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
                     tags,
                 })
             }
-            _ => Err(TwitchIrcParseError::BadCommand),
+            raw_command => {
+                // Try to parse as numeric command
+                if let Ok(num) = raw_command.parse::<u16>() {
+                    Ok(TwitchIrcMessage {
+                        command: TwitchIrcCommand::Numeric {
+                            command: num,
+                            params: value.params,
+                        },
+                        tags,
+                    })
+                } else {
+                    Err(TwitchIrcParseError::BadCommand)
+                }
+            }
         }
     }
 }
