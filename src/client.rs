@@ -8,6 +8,9 @@ use crate::actions::{TerminalAction, TwitchAction};
 use crate::config::{BotMode, TwitchLogin};
 use crate::irc::{RawIrcMessage, TwitchIrcCommand, TwitchIrcMessage};
 
+const LOGIN_TIMEOUT_SECONDS: u16 = 5;
+const LOGIN_RETRY_SECONDS: u16 = 10;
+
 // TODO: implement From<AppConfig> for this type, to make client initialization cleaner
 pub struct TwitchClientConfig {
     irc_addr: String,
@@ -33,9 +36,50 @@ pub struct TwitchClient {
     twitch_action_rx: mpsc::Receiver<TwitchAction>,
 }
 
+enum TwitchLoginResult {
+    Success,
+    Fail,
+    Timeout,
+}
+
 enum RawStreamAction {
     Receive(String),
     EndOfStream,
+}
+
+fn try_login(
+    raw_rx: &Receiver<RawStreamAction>,
+    writer: &mut BufWriter<TcpStream>,
+    pass: &String,
+    nick: &String,
+) -> TwitchLoginResult {
+    writer
+        .write(format!("PASS {}\r\n", pass).as_bytes())
+        .unwrap();
+    writer
+        .write(format!("NICK {}\r\n", nick).as_bytes())
+        .unwrap();
+    writer.flush().unwrap();
+
+    if let Ok(raw_action) = raw_rx.recv_timeout(Duration::from_secs(LOGIN_TIMEOUT_SECONDS.into())) {
+        match raw_action {
+            RawStreamAction::Receive(raw) => RawIrcMessage::try_from(raw)
+                .ok()
+                .and_then(|irc_message| TwitchIrcMessage::try_from(irc_message).ok())
+                .and_then(|twitch_irc_message| {
+                    if let TwitchIrcCommand::Numeric { command: 1, .. } = twitch_irc_message.command
+                    {
+                        Some(TwitchLoginResult::Success)
+                    } else {
+                        None
+                    }
+                })
+                .map_or_else(|| TwitchLoginResult::Fail, |res| res),
+            RawStreamAction::EndOfStream => TwitchLoginResult::Fail,
+        }
+    } else {
+        TwitchLoginResult::Timeout
+    }
 }
 
 fn handle_message(
@@ -149,15 +193,35 @@ pub fn connect_and_listen(
         ("justinfan1337".to_owned(), "forsenCD".to_owned())
     };
 
-    writer.write(format!("PASS {}\r\n", pass).as_bytes())?;
-    writer.write(format!("NICK {}\r\n", nick).as_bytes())?;
-    writer.flush()?;
-
-    // TODO: confirm successful auth before sending JOIN (i.e. await a 001 or NOTICE here)
+    // Confirm successful auth (or retry) before sending JOIN
+    loop {
+        match try_login(&raw_rx, &mut writer, &pass, &nick) {
+            TwitchLoginResult::Success => {
+                break;
+            }
+            TwitchLoginResult::Fail => {
+                terminal_action_tx
+                    .send(TerminalAction::PrintDebug(format!(
+                        "Auth failed. Retrying in {} seconds...",
+                        LOGIN_RETRY_SECONDS
+                    )))
+                    .unwrap();
+            }
+            TwitchLoginResult::Timeout => {
+                terminal_action_tx
+                    .send(TerminalAction::PrintDebug(format!(
+                        "Auth timed out. Retrying in {} seconds...",
+                        LOGIN_RETRY_SECONDS
+                    )))
+                    .unwrap();
+            }
+        }
+        thread::sleep(Duration::from_secs(LOGIN_RETRY_SECONDS.into()));
+    }
 
     terminal_action_tx
         .send(TerminalAction::PrintDebug(format!(
-            "[client] Connecting to channel #{}... (did auth succeed?)",
+            "[client] Auth successful! Connecting to channel #{}...",
             client_config.channel
         )))
         .unwrap();
