@@ -137,6 +137,14 @@ fn handle_message(
                 }
             }
         }
+        TwitchIrcCommand::Join { joiner, channel } => {
+            terminal_action_tx
+                .send(TerminalAction::PrintDebug(format!(
+                    "[client] {} joined #{}.",
+                    joiner, channel
+                )))
+                .unwrap();
+        }
         _ => {
             terminal_action_tx
                 .send(TerminalAction::PrintDebug(format!("[raw] {}", default_raw)))

@@ -8,6 +8,7 @@ pub enum TwitchIrcCommand {
         content: String,
     },
     Join {
+        joiner: String,
         channel: String,
     },
     Part {
@@ -202,6 +203,22 @@ impl TryFrom<RawIrcMessage> for TwitchIrcMessage {
                     .map_err(|_| TwitchIrcParseError::BadParams)?;
                 Ok(TwitchIrcMessage {
                     command: TwitchIrcCommand::Pong { content },
+                    tags,
+                })
+            }
+            "JOIN" => {
+                let [hash_channel]: [String; 1] = value
+                    .params
+                    .try_into()
+                    .map_err(|_| TwitchIrcParseError::BadParams)?;
+                let channel = hash_channel
+                    .split_once('#')
+                    .filter(|t| t.0.is_empty() && !t.1.is_empty())
+                    .map(|t| t.1.to_owned())
+                    .ok_or(TwitchIrcParseError::BadParams)?;
+                let joiner = sender.ok_or(TwitchIrcParseError::MissingSender)?;
+                Ok(TwitchIrcMessage {
+                    command: TwitchIrcCommand::Join { joiner, channel },
                     tags,
                 })
             }
