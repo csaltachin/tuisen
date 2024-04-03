@@ -82,6 +82,7 @@ fn try_login(
     }
 }
 
+// TODO: Handle NOTICE, the missing numeric commands, and other commands if we add capabilities
 fn handle_message(
     writer: &mut BufWriter<TcpStream>,
     terminal_action_tx: &Sender<TerminalAction>,
@@ -145,6 +146,19 @@ fn handle_message(
                 )))
                 .unwrap();
         }
+        TwitchIrcCommand::Numeric { ref command, .. } => match command {
+            // Welcome messages after 001; we ignore them
+            2 | 3 | 4 | 375 | 372 | 376 => {}
+            // Join list messages; we ignore them for now. TODO: do we want to build a names list
+            // with these?
+            353 | 366 => {}
+            // TODO: are there any others? Maybe 421 for unsupported IRC commands?
+            _ => {
+                terminal_action_tx
+                    .send(TerminalAction::PrintDebug(format!("[raw] {}", default_raw)))
+                    .unwrap();
+            }
+        },
         _ => {
             terminal_action_tx
                 .send(TerminalAction::PrintDebug(format!("[raw] {}", default_raw)))
