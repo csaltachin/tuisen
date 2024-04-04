@@ -149,29 +149,35 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                     continue;
                 }
 
-                if key.code == KeyCode::Esc {
-                    return Ok(());
-                }
-                if key.code == KeyCode::Backspace {
-                    app.input_field.pop();
-                }
-                if key.code == KeyCode::Enter {
-                    let trimmed = app.input_field.trim();
-                    if trimmed.len() > 0 {
-                        twitch_action_tx
-                            .send(TwitchAction::SendPrivmsg {
-                                message: trimmed.to_owned(),
-                            })
-                            .unwrap();
-                        app.input_field.clear();
+                // TODO: input mode, scrolling
+                match key.code {
+                    KeyCode::Esc => {
+                        break;
                     }
-                }
-                if let KeyCode::Char(c) = key.code {
-                    app.input_field.push(c);
+                    KeyCode::Backspace => {
+                        app.input_field.pop();
+                    }
+                    KeyCode::Enter => {
+                        let trimmed = app.input_field.trim();
+                        if trimmed.len() > 0 {
+                            twitch_action_tx
+                                .send(TwitchAction::SendPrivmsg {
+                                    message: trimmed.to_owned(),
+                                })
+                                .unwrap();
+                            app.input_field.clear();
+                        }
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_field.push(c);
+                    }
+                    _ => {}
                 }
             }
         }
     }
+
+    Ok(())
 }
 
 fn render_ui(frame: &mut Frame, app: &mut App) {
