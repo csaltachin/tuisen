@@ -3,14 +3,15 @@ use std::time::Duration;
 use std::{io, thread};
 
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
 };
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 
-use ratatui::prelude::{Backend, Constraint, CrosstermBackend, Direction, Layout};
+use ratatui::prelude::{Backend, Color, Constraint, CrosstermBackend, Direction, Layout, Style};
 use ratatui::widgets::{Block, Borders, List, Paragraph};
 use ratatui::{Frame, Terminal};
 
@@ -57,11 +58,17 @@ impl ScrollState {
     }
 }
 
+enum InputMode {
+    Normal,
+    Insert,
+}
+
 struct App {
     chat_lines: Vec<String>,
     scroll_state: ScrollState,
     scroll_active: bool,
     input_field: String,
+    input_mode: InputMode,
 }
 
 impl App {
@@ -71,6 +78,7 @@ impl App {
             scroll_state: ScrollState::Bottom,
             scroll_active: false,
             input_field: String::new(),
+            input_mode: InputMode::Normal,
         }
     }
 }
@@ -186,49 +194,71 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                     continue;
                 }
 
-                // TODO: input mode, scrolling
-                match key.code {
-                    KeyCode::Esc => {
-                        break;
-                    }
-                    KeyCode::Backspace => {
-                        app.input_field.pop();
-                    }
-                    KeyCode::Enter => {
-                        let trimmed = app.input_field.trim();
-                        if trimmed.len() > 0 {
-                            twitch_action_tx
-                                .send(TwitchAction::SendPrivmsg {
-                                    message: trimmed.to_owned(),
-                                })
-                                .unwrap();
-                            app.input_field.clear();
+                // Force quit
+                if let KeyEvent {
+                    code: KeyCode::Char('q'),
+                    modifiers: KeyModifiers::CONTROL,
+                    ..
+                } = key
+                {
+                    break;
+                }
+
+                // TODO: make this look nicer, maybe yoinking some of the AppState updating to
+                // methods on the AppState struct
+                match app.input_mode {
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('q') => {
+                            break;
                         }
-                    }
-                    KeyCode::Char(c) => {
-                        app.input_field.push(c);
-                    }
-                    KeyCode::Up if app.scroll_active => {
-                        app.scroll_state = match app.scroll_state {
-                            ScrollState::Bottom => ScrollState::Offset(1),
-                            ScrollState::Offset(n) => ScrollState::Offset(n + 1),
-                            ScrollState::Top => ScrollState::Top,
-                        };
-                    }
-                    KeyCode::Down if app.scroll_active => {
-                        app.scroll_state = match app.scroll_state {
-                            ScrollState::Bottom | ScrollState::Offset(1) => ScrollState::Bottom,
-                            ScrollState::Offset(n) => ScrollState::Offset(n - 1),
-                            ScrollState::Top => ScrollState::Offset(-1),
-                        };
-                    }
-                    KeyCode::Home if app.scroll_active => {
-                        app.scroll_state = ScrollState::Top;
-                    }
-                    KeyCode::End if app.scroll_active => {
-                        app.scroll_state = ScrollState::Bottom;
-                    }
-                    _ => {}
+                        KeyCode::Char('i') => {
+                            app.input_mode = InputMode::Insert;
+                        }
+                        KeyCode::Up if app.scroll_active => {
+                            app.scroll_state = match app.scroll_state {
+                                ScrollState::Bottom => ScrollState::Offset(1),
+                                ScrollState::Offset(n) => ScrollState::Offset(n + 1),
+                                ScrollState::Top => ScrollState::Top,
+                            };
+                        }
+                        KeyCode::Down if app.scroll_active => {
+                            app.scroll_state = match app.scroll_state {
+                                ScrollState::Bottom | ScrollState::Offset(1) => ScrollState::Bottom,
+                                ScrollState::Offset(n) => ScrollState::Offset(n - 1),
+                                ScrollState::Top => ScrollState::Offset(-1),
+                            };
+                        }
+                        KeyCode::Home if app.scroll_active => {
+                            app.scroll_state = ScrollState::Top;
+                        }
+                        KeyCode::End if app.scroll_active => {
+                            app.scroll_state = ScrollState::Bottom;
+                        }
+                        _ => {}
+                    },
+                    InputMode::Insert => match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            app.input_field.pop();
+                        }
+                        KeyCode::Enter => {
+                            let trimmed = app.input_field.trim();
+                            if trimmed.len() > 0 {
+                                twitch_action_tx
+                                    .send(TwitchAction::SendPrivmsg {
+                                        message: trimmed.to_owned(),
+                                    })
+                                    .unwrap();
+                                app.input_field.clear();
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            app.input_field.push(c);
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
@@ -285,11 +315,20 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
     frame.render_widget(chat_widget, chat_area);
 
     let input_area = main_areas[1];
-    let input_widget =
-        Paragraph::new(app.input_field.clone()).block(Block::default().borders(Borders::ALL));
+    let input_border_color = match app.input_mode {
+        InputMode::Normal => Color::default(),
+        InputMode::Insert => Color::LightBlue,
+    };
+    let input_widget = Paragraph::new(app.input_field.clone()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(input_border_color)),
+    );
     frame.render_widget(input_widget, input_area);
 
-    let cursor_x = input_area.x + (app.input_field.len() as u16) + 1;
-    let cursor_y = input_area.y + 1;
-    frame.set_cursor(cursor_x, cursor_y);
+    if let InputMode::Insert = app.input_mode {
+        let cursor_x = input_area.x + (app.input_field.len() as u16) + 1;
+        let cursor_y = input_area.y + 1;
+        frame.set_cursor(cursor_x, cursor_y);
+    }
 }
