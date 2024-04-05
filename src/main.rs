@@ -222,6 +222,12 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                             ScrollState::Top => ScrollState::Offset(-1),
                         };
                     }
+                    KeyCode::Home if app.scroll_active => {
+                        app.scroll_state = ScrollState::Top;
+                    }
+                    KeyCode::End if app.scroll_active => {
+                        app.scroll_state = ScrollState::Bottom;
+                    }
                     _ => {}
                 }
             }
