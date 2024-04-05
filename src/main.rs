@@ -30,14 +30,27 @@ const DEFAULT_CHANNEL: &str = "forsen";
 
 // TODO: Break off ui stuff into its own module
 
+#[derive(Clone)]
 enum ScrollState {
     Bottom,
-    Offset(usize),
+    Offset(isize),
+    Top,
+}
+
+impl ScrollState {
+    fn clipped(&self, hi: isize) -> Self {
+        match self {
+            ScrollState::Offset(ref n) if *n < 0 => ScrollState::Offset(hi + *n),
+            ScrollState::Offset(ref n) if *n > hi => ScrollState::Top,
+            state => state.clone(),
+        }
+    }
 }
 
 struct App {
     chat_lines: Vec<String>,
     scroll_state: ScrollState,
+    scroll_active: bool,
     input_field: String,
 }
 
@@ -46,6 +59,7 @@ impl App {
         App {
             chat_lines: Vec::new(),
             scroll_state: ScrollState::Bottom,
+            scroll_active: false,
             input_field: String::new(),
         }
     }
@@ -171,6 +185,20 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                     KeyCode::Char(c) => {
                         app.input_field.push(c);
                     }
+                    KeyCode::Up if app.scroll_active => {
+                        app.scroll_state = match app.scroll_state {
+                            ScrollState::Bottom => ScrollState::Offset(1),
+                            ScrollState::Offset(n) => ScrollState::Offset(n + 1),
+                            ScrollState::Top => ScrollState::Top,
+                        };
+                    }
+                    KeyCode::Down if app.scroll_active => {
+                        app.scroll_state = match app.scroll_state {
+                            ScrollState::Bottom | ScrollState::Offset(1) => ScrollState::Bottom,
+                            ScrollState::Offset(n) => ScrollState::Offset(n - 1),
+                            ScrollState::Top => ScrollState::Offset(-1),
+                        };
+                    }
                     _ => {}
                 }
             }
@@ -180,6 +208,7 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
     Ok(())
 }
 
+// TODO: Add better scrolling and wrapping logic
 fn render_ui(frame: &mut Frame, app: &mut App) {
     let main_areas = Layout::default()
         .direction(Direction::Vertical)
@@ -191,22 +220,36 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
 
     let chat_area = main_areas[0];
 
-    // TODO: Add better scrolling and wrapping logic
     let chat_inner_height = (chat_area.height - 2) as usize;
     let chat_line_count = app.chat_lines.len();
+
+    // If scroll is not active yet, check for overflow
+    if !app.scroll_active && chat_line_count > chat_inner_height {
+        app.scroll_active = true;
+    }
+
+    // Trim scroll offset if necessary
+    app.scroll_state = app
+        .scroll_state
+        .clipped((chat_line_count as isize) - (chat_inner_height as isize));
+
     let chat_lines = match app.scroll_state {
         ScrollState::Bottom => {
-            let lo = std::cmp::max(0, (chat_line_count as isize) - (chat_inner_height as isize))
-                as usize;
+            let lo = chat_line_count.saturating_sub(chat_inner_height);
             app.chat_lines.get(lo..).unwrap().to_vec()
         }
         ScrollState::Offset(offset) => {
-            let lo = chat_line_count - chat_inner_height - offset;
+            // At this point, scroll_state has already been trimmed, so offset should be between 0
+            // and (chat_line_count - chat_inner_height) inclusive. Otherwise something went wrong
+            // and we panic
+            let uoffset: usize = offset.try_into().unwrap();
+            let lo = chat_line_count - chat_inner_height - uoffset;
             app.chat_lines
                 .get(lo..lo + chat_inner_height)
                 .unwrap()
                 .to_vec()
         }
+        ScrollState::Top => app.chat_lines.get(..chat_inner_height).unwrap().to_vec(),
     };
 
     let chat_widget = List::new(chat_lines).block(Block::default().borders(Borders::ALL));
