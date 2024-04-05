@@ -146,7 +146,7 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
         // Draw UI
         terminal.draw(|f| render_ui(f, &mut app))?;
 
-        // Poll messages
+        // Poll terminal actions
         if let Ok(action) = terminal_action_rx.try_recv() {
             match action {
                 TerminalAction::PrintDebug(debug_message) => {
@@ -159,9 +159,22 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                 } => {
                     app.chat_lines
                         .push(format!("[#{}] {}: {}", channel, username, message));
+                    if let ScrollState::Offset(n) = app.scroll_state {
+                        if n > 0 {
+                            // TODO: Adjust this by the correct message height when we start
+                            // wrapping messages
+                            app.scroll_state = ScrollState::Offset(n + 1);
+                        }
+                    };
                 }
                 TerminalAction::PrintPing(content) => {
-                    app.chat_lines.push(format!("[ping {}]", content))
+                    app.chat_lines.push(format!("[ping {}]", content));
+                    if let ScrollState::Offset(n) = app.scroll_state {
+                        if n > 0 {
+                            // This should always be one line unless the window is really narrow
+                            app.scroll_state = ScrollState::Offset(n + 1);
+                        }
+                    };
                 }
             }
         }
