@@ -38,10 +38,20 @@ enum ScrollState {
 }
 
 impl ScrollState {
-    fn clipped(&self, hi: isize) -> Self {
+    fn clipped(&self, hi: usize) -> Self {
+        let ihi = hi as isize;
         match self {
-            ScrollState::Offset(ref n) if *n < 0 => ScrollState::Offset(hi + *n),
-            ScrollState::Offset(ref n) if *n > hi => ScrollState::Top,
+            // If offset is negative, then we were scrolling down from the top
+            ScrollState::Offset(ref n) if *n < 0 => ScrollState::Offset(ihi + *n),
+            // If offset goes over hi, then we were trying to scroll up. If hi is 0, then we should
+            // stay at the bottom; otherwise we clip at the top
+            ScrollState::Offset(ref n) if *n > ihi => {
+                if ihi == 0 {
+                    ScrollState::Bottom
+                } else {
+                    ScrollState::Top
+                }
+            }
             state => state.clone(),
         }
     }
@@ -231,7 +241,7 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
     // Trim scroll offset if necessary
     app.scroll_state = app
         .scroll_state
-        .clipped((chat_line_count as isize) - (chat_inner_height as isize));
+        .clipped(chat_line_count.saturating_sub(chat_inner_height));
 
     let chat_lines = match app.scroll_state {
         ScrollState::Bottom => {
