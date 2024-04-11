@@ -11,7 +11,9 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 
-use ratatui::prelude::{Backend, Color, Constraint, CrosstermBackend, Direction, Layout, Style};
+use ratatui::prelude::{
+    Backend, Color, Constraint, CrosstermBackend, Direction, Layout, Line, Style,
+};
 use ratatui::widgets::{Block, Borders, List, Paragraph};
 use ratatui::{Frame, Terminal};
 
@@ -40,6 +42,15 @@ enum ScrollState {
 enum InputMode {
     Normal,
     Insert,
+}
+
+impl InputMode {
+    fn title_string(&self) -> String {
+        match self {
+            InputMode::Normal => "[normal]".to_owned(),
+            InputMode::Insert => "[insert]".to_owned(),
+        }
+    }
 }
 
 struct App {
@@ -372,6 +383,7 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
     let input_widget = Paragraph::new(app.input_field.clone()).block(
         Block::default()
             .borders(Borders::ALL)
+            .title_top(Line::from(app.input_mode.title_string()).left_aligned())
             .border_style(Style::default().fg(input_border_color)),
     );
     frame.render_widget(input_widget, input_area);
