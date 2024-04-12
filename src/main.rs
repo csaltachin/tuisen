@@ -12,7 +12,7 @@ use crossterm::terminal::{
 };
 
 use ratatui::prelude::{
-    Backend, Color, Constraint, CrosstermBackend, Direction, Layout, Line, Style,
+    Backend, Color, Constraint, CrosstermBackend, Direction, Layout, Line, Span, Style, Stylize,
 };
 use ratatui::widgets::{Block, Borders, List, Paragraph};
 use ratatui::{Frame, Terminal};
@@ -30,6 +30,7 @@ mod irc;
 
 const DEFAULT_IRC_ADDR: &str = "irc.chat.twitch.tv:6667";
 const DEFAULT_CHANNEL: &str = "forsen";
+const INSERT_LEN_WARN: usize = 500;
 
 // TODO: Break off ui stuff into its own module
 
@@ -47,8 +48,8 @@ enum InputMode {
 impl InputMode {
     fn title_string(&self) -> String {
         match self {
-            InputMode::Normal => "[normal]".to_owned(),
-            InputMode::Insert => "[insert]".to_owned(),
+            InputMode::Normal => "[ normal ]".to_owned(),
+            InputMode::Insert => "[ insert ]".to_owned(),
         }
     }
 }
@@ -392,12 +393,32 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
         InputMode::Normal => Color::default(),
         InputMode::Insert => Color::LightBlue,
     };
-    let input_widget = Paragraph::new(app.input_field.clone()).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title_top(Line::from(app.input_mode.title_string()).left_aligned())
-            .border_style(Style::default().fg(input_border_color)),
-    );
+    let mut input_widget_block = Block::default()
+        .borders(Borders::ALL)
+        .title_top(Line::from(app.input_mode.title_string()).left_aligned());
+    // Custom block styling per mode
+    input_widget_block = match app.input_mode {
+        InputMode::Insert => {
+            let trim_len = app.input_field.trim_end().len();
+            let char_count_color = if trim_len > INSERT_LEN_WARN {
+                Color::LightRed
+            } else {
+                input_border_color
+            };
+            let char_count_line = Line::from(vec![
+                Span::raw("[ "),
+                Span::raw(format!("{}/500", trim_len)).fg(char_count_color),
+                Span::raw(" ]"),
+            ])
+            .right_aligned();
+            input_widget_block.title_top(char_count_line)
+        }
+        _ => input_widget_block,
+    };
+    // Set the default border color on top of the previous titles
+    input_widget_block = input_widget_block.border_style(Style::default().fg(input_border_color));
+
+    let input_widget = Paragraph::new(app.input_field.clone()).block(input_widget_block);
     frame.render_widget(input_widget, input_area);
 
     if let InputMode::Insert = app.input_mode {
