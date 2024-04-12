@@ -305,7 +305,19 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
                             app.input_mode = InputMode::Normal;
                         }
                         KeyCode::Backspace => {
-                            app.input_field.pop();
+                            if key.modifiers == KeyModifiers::ALT && app.input_field.len() > 0 {
+                                app.input_field = app
+                                    .input_field
+                                    .trim_end()
+                                    .rsplit_once(' ')
+                                    .map_or(String::new(), |(m, _)| {
+                                        let mut mo = m.to_owned();
+                                        mo.push(' ');
+                                        mo
+                                    });
+                            } else {
+                                app.input_field.pop();
+                            }
                         }
                         KeyCode::Enter => {
                             let trimmed = app.input_field.trim();
