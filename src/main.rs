@@ -140,18 +140,19 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
     let (init_width, init_height) = terminal.size().map(|rect| (rect.width, rect.height))?;
 
+    // Setup panic hook for cleanup
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        cleanup_terminal().unwrap();
+        default_hook(panic);
+    }));
+
     // App goes here
     let app = App::init(init_width, init_height);
     let app_result = run_app(app, &mut terminal);
 
-    // Clean up buffer
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    // Clean up
+    cleanup_terminal()?;
 
     app_result
 }
@@ -425,4 +426,11 @@ fn render_ui(frame: &mut Frame, app: &mut App) {
         let cursor_y = input_area.y + 1;
         frame.set_cursor(cursor_x, cursor_y);
     }
+}
+
+fn cleanup_terminal() -> io::Result<()> {
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+
+    Ok(())
 }
