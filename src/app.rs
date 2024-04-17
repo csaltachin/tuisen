@@ -1,4 +1,9 @@
+use std::sync::mpsc::{Receiver, Sender};
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use textwrap::wrap;
+
+use crate::actions::{TerminalAction, TwitchAction};
 
 pub const INSERT_LEN_WARN: usize = 500;
 
@@ -55,6 +60,8 @@ impl ChatItem {
 }
 
 pub struct App {
+    pub terminal_action_rx: Receiver<TerminalAction>,
+    pub twitch_action_tx: Sender<TwitchAction>,
     pub chat_items: Vec<ChatItem>,
     pub chat_lines: Vec<String>,
     pub scroll_state: ScrollState,
@@ -66,10 +73,17 @@ pub struct App {
 }
 
 impl App {
-    pub fn init(init_width: u16, init_height: u16) -> Self {
+    pub fn init(
+        init_width: u16,
+        init_height: u16,
+        terminal_action_rx: Receiver<TerminalAction>,
+        twitch_action_tx: Sender<TwitchAction>,
+    ) -> Self {
         // TODO: do we want to compute chat_width and chat_height via the render
         // layout/constraints? What we have here is correct but hardcoded
         App {
+            terminal_action_rx,
+            twitch_action_tx,
             chat_items: Vec::new(),
             chat_lines: Vec::new(),
             scroll_state: ScrollState::Bottom,
@@ -169,6 +183,124 @@ impl App {
                     ScrollState::Bottom
                 }
             }
+        }
+    }
+
+    pub fn try_recv_terminal_action(&mut self) {
+        if let Ok(action) = self.terminal_action_rx.try_recv() {
+            match action {
+                TerminalAction::PrintDebug(debug_message) => {
+                    self.push_to_chat(ChatItem::Debug {
+                        content: debug_message,
+                    });
+                }
+                TerminalAction::PrintPrivmsg {
+                    channel,
+                    username,
+                    message,
+                } => {
+                    self.push_to_chat(ChatItem::Privmsg {
+                        channel,
+                        username,
+                        message,
+                    });
+                }
+                TerminalAction::PrintPing(content) => {
+                    self.push_to_chat(ChatItem::Ping { content });
+                }
+            }
+        }
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        match self.input_mode {
+            InputMode::Normal => match key.code {
+                KeyCode::Char('q') => true,
+                KeyCode::Char('i') => {
+                    self.input_mode = InputMode::Insert;
+                    false
+                }
+                KeyCode::Up if self.scroll_active => {
+                    let offset_limit = self.get_scroll_offset_limit();
+                    self.scroll_state = match self.scroll_state {
+                        ScrollState::Top => ScrollState::Top,
+                        // Make sure we convert any Offset(offset_limit) into Top
+                        ScrollState::Bottom => {
+                            if offset_limit == 1 {
+                                ScrollState::Top
+                            } else {
+                                ScrollState::Offset(1)
+                            }
+                        }
+                        ScrollState::Offset(n) if n + 1 == offset_limit => ScrollState::Top,
+                        ScrollState::Offset(n) => ScrollState::Offset(n + 1),
+                    };
+                    false
+                }
+                KeyCode::Down if self.scroll_active => {
+                    let offset_limit = self.get_scroll_offset_limit();
+                    self.scroll_state = match self.scroll_state {
+                        // Make sure we convert any Offset(0) into Bottom
+                        ScrollState::Bottom | ScrollState::Offset(1) => ScrollState::Bottom,
+                        ScrollState::Offset(n) => ScrollState::Offset(n - 1),
+                        ScrollState::Top => {
+                            if offset_limit == 1 {
+                                ScrollState::Bottom
+                            } else {
+                                ScrollState::Offset(offset_limit - 1)
+                            }
+                        }
+                    };
+                    false
+                }
+                KeyCode::Home if self.scroll_active => {
+                    self.scroll_state = ScrollState::Top;
+                    false
+                }
+                KeyCode::End if self.scroll_active => {
+                    self.scroll_state = ScrollState::Bottom;
+                    false
+                }
+                _ => false,
+            },
+            InputMode::Insert => match key.code {
+                KeyCode::Esc => {
+                    self.input_mode = InputMode::Normal;
+                    false
+                }
+                KeyCode::Backspace => {
+                    if key.modifiers == KeyModifiers::ALT && self.input_field.len() > 0 {
+                        self.input_field = self.input_field.trim_end().rsplit_once(' ').map_or(
+                            String::new(),
+                            |(m, _)| {
+                                let mut mo = m.to_owned();
+                                mo.push(' ');
+                                mo
+                            },
+                        );
+                    } else {
+                        self.input_field.pop();
+                    };
+                    false
+                }
+                KeyCode::Enter => {
+                    let trimmed = self.input_field.trim();
+                    if trimmed.len() > 0 {
+                        self.twitch_action_tx
+                            .send(TwitchAction::SendPrivmsg {
+                                message: trimmed.to_owned(),
+                            })
+                            .unwrap();
+                        self.input_field.clear();
+                    };
+                    false
+                }
+                KeyCode::Char(c) => {
+                    self.input_field.push(c);
+                    false
+                }
+                _ => false,
+            },
         }
     }
 }
