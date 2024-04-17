@@ -17,6 +17,8 @@ use ratatui::prelude::{
 use ratatui::widgets::{Block, Borders, List, Paragraph};
 use ratatui::{Frame, Terminal};
 
+use textwrap::wrap;
+
 mod client;
 use client::TwitchClientConfig;
 
@@ -69,8 +71,8 @@ enum ChatItem {
 }
 
 impl ChatItem {
-    fn single_line(&self) -> String {
-        match self {
+    fn wrapped_lines(&self, width: usize) -> Vec<String> {
+        let unwrapped = match self {
             ChatItem::Debug { content } => content.clone(),
             ChatItem::Ping { content } => format!("[ping {}]", &content),
             ChatItem::Privmsg {
@@ -78,7 +80,11 @@ impl ChatItem {
                 username,
                 message,
             } => format!("[#{}] {}: {}", channel, username, message),
-        }
+        };
+        wrap(&unwrapped, width)
+            .into_iter()
+            .map(|cow| cow.to_string())
+            .collect()
     }
 }
 
@@ -114,11 +120,13 @@ impl App {
     fn push_to_chat(&mut self, item: ChatItem) {
         // TODO: wrap message before pushing line(s), and adjust scroll state correctly instead of
         // always by 1
-        self.chat_lines.push(item.single_line());
+        let item_lines = item.wrapped_lines(self.chat_width.into());
+        let item_line_count = item_lines.len();
+        self.chat_lines.extend(item_lines);
         self.chat_items.push(item);
         if let ScrollState::Offset(n) = self.scroll_state {
             if n > 0 {
-                self.scroll_state = ScrollState::Offset(n + 1);
+                self.scroll_state = ScrollState::Offset(n + item_line_count);
             }
         };
     }
