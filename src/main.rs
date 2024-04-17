@@ -89,17 +89,18 @@ impl App {
 
     fn refresh_chat_size(&mut self, new_chat_width: u16, new_chat_height: u16) {
         if self.chat_width != new_chat_width {
+            // TODO: re-wrap messages when we implement wrapping
             self.chat_width = new_chat_width;
         }
         // Update height and adjust scroll state
         if self.chat_height != new_chat_height {
-            let old_height = self.chat_height.clone();
-            let lines = self.chat_lines.len();
+            let height_delta = new_chat_height as i32 - self.chat_height as i32;
             self.chat_height = new_chat_height;
+
             self.scroll_state = match self.scroll_state {
                 // If there is no overflow anymore, reset scroll state to the initial state (Bottom
                 // with scroll inactive)
-                _ if lines <= (new_chat_height as usize) => {
+                _ if self.chat_lines.len() <= (new_chat_height as usize) => {
                     self.scroll_active = false;
                     ScrollState::Bottom
                 }
@@ -113,14 +114,12 @@ impl App {
                 // Then the new scroll state will be Offset(new offset), unless the new offset is 0
                 // or negative, in which case we just set it to Bottom.
                 // Notice that, at this point, we can assume there is overflow (otherwise we would
-                // have pattern matched earlier). So in the Bottom case, we don't need to disable
+                // have pattern-matched earlier). So in the Bottom case, we don't need to disable
                 // scrolling.
                 ScrollState::Offset(n) => {
-                    let old_lines_above = lines.saturating_sub(n + (old_height as usize));
-                    let new_offset =
-                        lines.saturating_sub(old_lines_above + (new_chat_height as usize));
+                    let new_offset = n as i32 - height_delta;
                     if new_offset > 0 {
-                        ScrollState::Offset(new_offset)
+                        ScrollState::Offset(new_offset as usize)
                     } else {
                         ScrollState::Bottom
                     }
