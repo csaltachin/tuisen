@@ -139,8 +139,8 @@ impl App {
 
     fn refresh_chat_size(&mut self, new_chat_width: u16, new_chat_height: u16) {
         if self.chat_width != new_chat_width {
-            // TODO: re-wrap messages when we implement wrapping
             self.chat_width = new_chat_width;
+            self.rewrap_lines();
         }
         // Update height and adjust scroll state
         if self.chat_height != new_chat_height {
@@ -173,6 +173,36 @@ impl App {
                     } else {
                         ScrollState::Bottom
                     }
+                }
+            }
+        }
+    }
+
+    fn rewrap_lines(&mut self) {
+        let old_line_count = self.chat_lines.len();
+        self.chat_lines = self
+            .chat_items
+            .iter()
+            .map(|item| item.wrapped_lines(self.chat_width.into()))
+            .flatten()
+            .collect();
+        let line_count_delta = self.chat_lines.len() as i32 - old_line_count as i32;
+
+        // TODO: This is almost identical to the scroll adjusting in refresh_chat_size. Maybe we
+        // can yoink it out into its own method, taking an offset delta as a parameter?
+        self.scroll_state = match self.scroll_state {
+            _ if self.chat_lines.len() <= self.chat_height.into() => {
+                self.scroll_active = false;
+                ScrollState::Bottom
+            }
+            ScrollState::Bottom => ScrollState::Bottom,
+            ScrollState::Top => ScrollState::Top,
+            ScrollState::Offset(n) => {
+                let new_offset = n as i32 + line_count_delta;
+                if new_offset > 0 {
+                    ScrollState::Offset(new_offset as usize)
+                } else {
+                    ScrollState::Bottom
                 }
             }
         }
