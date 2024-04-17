@@ -54,7 +54,36 @@ impl InputMode {
     }
 }
 
+enum ChatItem {
+    Privmsg {
+        channel: String,
+        username: String,
+        message: String,
+    },
+    Debug {
+        content: String,
+    },
+    Ping {
+        content: String,
+    },
+}
+
+impl ChatItem {
+    fn single_line(&self) -> String {
+        match self {
+            ChatItem::Debug { content } => content.clone(),
+            ChatItem::Ping { content } => format!("[ping {}]", &content),
+            ChatItem::Privmsg {
+                channel,
+                username,
+                message,
+            } => format!("[#{}] {}: {}", channel, username, message),
+        }
+    }
+}
+
 struct App {
+    chat_items: Vec<ChatItem>,
     chat_lines: Vec<String>,
     scroll_state: ScrollState,
     scroll_active: bool,
@@ -69,6 +98,7 @@ impl App {
         // TODO: do we want to compute chat_width and chat_height via the render
         // layout/constraints? What we have here is correct but hardcoded
         App {
+            chat_items: Vec::new(),
             chat_lines: Vec::new(),
             scroll_state: ScrollState::Bottom,
             scroll_active: false,
@@ -79,6 +109,18 @@ impl App {
             // Subtract 2 for the top/bottom borders, and 3 for the initial input area height
             chat_height: init_height.saturating_sub(5),
         }
+    }
+
+    fn push_to_chat(&mut self, item: ChatItem) {
+        // TODO: wrap message before pushing line(s), and adjust scroll state correctly instead of
+        // always by 1
+        self.chat_lines.push(item.single_line());
+        self.chat_items.push(item);
+        if let ScrollState::Offset(n) = self.scroll_state {
+            if n > 0 {
+                self.scroll_state = ScrollState::Offset(n + 1);
+            }
+        };
     }
 
     fn get_scroll_offset_limit(&self) -> usize {
@@ -206,31 +248,23 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
         if let Ok(action) = terminal_action_rx.try_recv() {
             match action {
                 TerminalAction::PrintDebug(debug_message) => {
-                    app.chat_lines.push(debug_message);
+                    app.push_to_chat(ChatItem::Debug {
+                        content: debug_message,
+                    });
                 }
                 TerminalAction::PrintPrivmsg {
                     channel,
                     username,
                     message,
                 } => {
-                    app.chat_lines
-                        .push(format!("[#{}] {}: {}", channel, username, message));
-                    if let ScrollState::Offset(n) = app.scroll_state {
-                        if n > 0 {
-                            // TODO: Adjust this by the correct message height when we start
-                            // wrapping messages
-                            app.scroll_state = ScrollState::Offset(n + 1);
-                        }
-                    };
+                    app.push_to_chat(ChatItem::Privmsg {
+                        channel,
+                        username,
+                        message,
+                    });
                 }
                 TerminalAction::PrintPing(content) => {
-                    app.chat_lines.push(format!("[ping {}]", content));
-                    if let ScrollState::Offset(n) = app.scroll_state {
-                        if n > 0 {
-                            // This should always be one line unless the window is really narrow
-                            app.scroll_state = ScrollState::Offset(n + 1);
-                        }
-                    };
+                    app.push_to_chat(ChatItem::Ping { content });
                 }
             }
         }
@@ -344,7 +378,6 @@ fn run_app<B: Backend>(mut app: App, terminal: &mut Terminal<B>) -> io::Result<(
     Ok(())
 }
 
-// TODO: Add better scrolling and wrapping logic
 fn render_ui(frame: &mut Frame, app: &mut App) {
     let main_areas = Layout::default()
         .direction(Direction::Vertical)
